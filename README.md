@@ -67,10 +67,10 @@ python run.py \
     --output results/ib_utd_depth_imu.json
 ```
 
-Run the complete starter real-dataset bundle (8 main benchmark settings across ImageBind and LanguageBind) or the wearable IMU-only sensing benchmark directly:
+Run the complete starter real-dataset bundle (6 public main benchmark settings across ImageBind and LanguageBind) or the wearable IMU-only sensing benchmark directly:
 
 ```bash
-# 8 real benchmark settings (UTD-MHAD, Ego4D, VGGSound, CART, MAVD, MSR-VTT)
+# 6 public main benchmark settings (UTD-MHAD, VGGSound, CART, MAVD, MSR-VTT)
 python run.py \
     --config configs/quick_real.json \
     --hf_repo Rowance/PRAM-features \
@@ -140,7 +140,7 @@ data_cache/
         └── wearable_czu_mhad.npz
 ```
 
-Compact starter packs (`ib_utd_depth_imu`, `ib_ego4d_audio_imu`, `ib_ego4d_text_imu`, `ib_vggsound_text_audio`, `ib_cart_thermal_imu`, `ib_mavd_audio_thermal`, `lb_msrvtt_video_audio`, `lb_mavd_thermal_audio`, `wearable_utd_mhad`, and `wearable_czu_mhad`) are immediately available in [`Rowance/PRAM-features`](https://huggingface.co/datasets/Rowance/PRAM-features); larger spatial packs can be downloaded into the same layout or extracted locally via Option B.
+Compact starter packs (`ib_utd_depth_imu`, `ib_vggsound_text_audio`, `ib_cart_thermal_imu`, `ib_mavd_audio_thermal`, `lb_msrvtt_video_audio`, `lb_mavd_thermal_audio`, `wearable_utd_mhad`, and `wearable_czu_mhad`) are immediately available in [`Rowance/PRAM-features`](https://huggingface.co/datasets/Rowance/PRAM-features) under each upstream dataset and encoder's respective non-commercial research terms (see `UPSTREAM_SOURCES.md` and `LICENSES/` in the dataset repository). Ego4D packs (`ib_ego4d_audio_imu`, `ib_ego4d_text_imu`) are not redistributed due to Ego4D's license terms; authorized Ego4D licensees and users building larger spatial packs can generate them locally via Option B.
 
 ### Option B: Extract Frozen Features from Raw Datasets
 
@@ -269,7 +269,7 @@ PRAM/
 ├── run.py                         # Unified CLI entry point for all experiments
 ├── configs/                       # JSON experiment & estimator configurations
 │   ├── default_pram.json          # Default fixed paper hyperparameters
-│   ├── quick_real.json            # Starter real-dataset bundle (8 settings)
+│   ├── quick_real.json            # Starter real-dataset bundle (6 public settings)
 │   ├── main_imagebind.json        # Full ImageBind benchmark settings
 │   ├── main_languagebind.json     # Full LanguageBind benchmark settings
 │   ├── ablations.json             # Component ablation suite
