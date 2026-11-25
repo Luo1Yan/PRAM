@@ -1,0 +1,9 @@
+{
+  "mode": "sensing_robot",
+  "seeds": [0],
+  "chunk_size": 256,
+  "relations": [
+    {"name": "ms2", "pack": "packs/sensing/robot_ms2.npz", "thresholds": [5, 15, 25]},
+    {"name": "obv", "pack": "packs/sensing/robot_obv.npz", "thresholds": [0.25, 0.5, 1]}
+  ]
+}

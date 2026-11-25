@@ -1,0 +1,8 @@
+{
+  "mode": "sensing_vehicle",
+  "chunk_size": 256,
+  "thresholds": [5, 15, 25],
+  "relations": [
+    {"name": "vividpp_to_ms2", "pack": "packs/sensing/vehicle_vividpp_to_ms2.npz"}
+  ]
+}

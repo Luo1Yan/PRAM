@@ -16,6 +16,9 @@ htmlcov/
 *.pt
 *.pth
 *.ckpt
+*.npz
+data_cache/
+results/
 runs/
 .DS_Store
 Thumbs.db

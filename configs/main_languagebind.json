@@ -1,0 +1,17 @@
+{
+  "mode": "main",
+  "seeds": [0],
+  "chunk_size": 256,
+  "relations": [
+    {"pack": "packs/main/lb_batvision_depth_audio.npz"},
+    {"pack": "packs/main/lb_vggsound_image_audio.npz"},
+    {"pack": "packs/main/lb_nyuv2_image_depth.npz"},
+    {"pack": "packs/main/lb_tartanrgbt_image_thermal.npz"},
+    {"pack": "packs/main/lb_ucf101_image_video.npz"},
+    {"pack": "packs/main/lb_mavd_thermal_audio.npz", "report": ["retrieval"]},
+    {"pack": "packs/main/lb_tartanrgbt_thermal_depth.npz"},
+    {"pack": "packs/main/lb_msrvtt_video_audio.npz"},
+    {"pack": "packs/main/lb_tartanrgbt_video_depth.npz"},
+    {"pack": "packs/main/lb_tartanrgbt_video_thermal.npz"}
+  ]
+}

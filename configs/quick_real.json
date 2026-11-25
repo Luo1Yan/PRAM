@@ -1,0 +1,15 @@
+{
+  "mode": "main",
+  "seeds": [0],
+  "chunk_size": 256,
+  "relations": [
+    {"pack": "packs/main/ib_utd_depth_imu.npz"},
+    {"pack": "packs/main/ib_ego4d_audio_imu.npz"},
+    {"pack": "packs/main/ib_ego4d_text_imu.npz"},
+    {"pack": "packs/main/ib_vggsound_text_audio.npz"},
+    {"pack": "packs/main/ib_cart_thermal_imu.npz", "report": ["retrieval"]},
+    {"pack": "packs/main/ib_mavd_audio_thermal.npz", "report": ["retrieval"]},
+    {"pack": "packs/main/lb_msrvtt_video_audio.npz"},
+    {"pack": "packs/main/lb_mavd_thermal_audio.npz", "report": ["retrieval"]}
+  ]
+}

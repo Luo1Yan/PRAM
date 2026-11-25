@@ -1,67 +1,220 @@
-# PRAM: Activating Latent Multimodal Knowledge through Partwise Reasoning
+<div align="center">
+
+<h1><a href="https://luo1yan.github.io/PRAM/">PRAM: Activating Latent Multimodal Knowledge through Partwise Reasoning</a></h1>
+
+[![Project Page](https://img.shields.io/badge/Project%20Page-PRAM-2565a3?style=flat-square)](https://luo1yan.github.io/PRAM/)
+[![Hugging Face Dataset](https://img.shields.io/badge/Hugging%20Face-PRAM--features-ffd21e?style=flat-square&logo=huggingface&logoColor=000)](https://huggingface.co/datasets/Rowance/PRAM-features)
+[![License: MIT](https://img.shields.io/badge/License-MIT-3a46d6?style=flat-square)](LICENSE)
+![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B-3776ab?style=flat-square)
+![PyTorch 2.0+](https://img.shields.io/badge/PyTorch-2.0%2B-ee4c2c?style=flat-square)
+
+*Activating Latent Multimodal Knowledge in Frozen Encoders via Partwise Statistical Reasoning*
+
+</div>
+
+---
+
+## ✨ Overview
 
 <p align="center">
-  <a href="https://luo1yan.github.io/PRAM/"><img src="https://img.shields.io/badge/Project%20Page-PRAM-2565a3?style=flat-square" alt="Project Page"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-3a46d6?style=flat-square" alt="License: MIT"></a>
-  <img src="https://img.shields.io/badge/Python-3.10%2B-3776ab?style=flat-square" alt="Python 3.10+">
-  <img src="https://img.shields.io/badge/PyTorch-2.0%2B-ee4c2c?style=flat-square" alt="PyTorch 2.0+">
+  <img src="docs/assets/figures/fig1.png" alt="Partwise Reasoning Activates Latent Multimodal Knowledge" width="90%">
 </p>
 
-Official PyTorch implementation of **PRAM: Activating Latent Multimodal Knowledge through Partwise Reasoning**.
+**Partwise Reasoning across Modalities (PRAM)** enables emergent cross-modal classification and retrieval between target modalities $A$ and $B$ that were never paired during training, while keeping all pretrained multimodal encoders completely frozen.
 
-**Authors:** Haidong Chen<sup>1</sup>, Ying Guo<sup>1</sup>, Shangze Li<sup>2</sup>, Zhongkuan Mao<sup>3</sup>, Linrui Xu<sup>4</sup>, Canran Xiao<sup>5</sup>, Fei Shen<sup>6,&dagger;</sup>, Tat-Seng Chua<sup>6</sup>  
-<sup>1</sup>North China University of Technology &middot; <sup>2</sup>Nanjing University of Science and Technology &middot; <sup>3</sup>Sichuan University &middot; <sup>4</sup>Central South University &middot; <sup>5</sup>Sun Yat-sen University &middot; <sup>6</sup>National University of Singapore, NExT++ Research Centre  
-<sup>&dagger;</sup>Corresponding author: Fei Shen (`shenfei29@nus.edu.sg`)
+> **Key Insight**: Collapsing multi-part spatial or temporal representations into a single global vector discards fine-grained cross-modal relations already computed inside frozen encoders. Composing regularized partwise statistical relations through corresponding parts of a shared pivot modality recovers this latent knowledge in closed form.
+
+---
+
+## 🎯 Key Features
+
+- **Zero Direct Target Pairs & Frozen Encoders** — Fits solely on two separate modality–pivot collections ($\mathcal{D}_{AP}$ and $\mathcal{D}_{PB}$) with zero encoder updates.
+- **Partwise Statistical Composition** — Preserves both global and spatial/temporal local vectors with adaptive cross-part covariance shrinkage (MCR) and contraction-guaranteed equal-edge spectral reasoning (PSRR).
+- **Task-Adaptive Score Fusion** — Combines correlation, covariance-map, pivot-association, and class-semantic scores with fixed training-bank standardization (MSF) for both retrieval and classification.
+- **Config-Driven Reproducibility** — Unified `run.py` entry point and JSON experiment configs covering all main benchmarks, ablations, real-world sensing scenarios, and mechanism analyses.
+- **Pre-Extracted Feature Packs on Hugging Face** — Auto-download standardized `.npz` feature packs from [`Rowance/PRAM-features`](https://huggingface.co/datasets/Rowance/PRAM-features) or extract fresh features from raw datasets via `scripts/`.
+
+---
+
+## 🏗️ Architecture
 
 <p align="center">
-  <img src="docs/assets/figures/fig2.png" alt="Overview of PRAM" width="96%">
+  <img src="docs/assets/figures/fig2.png" alt="PRAM Framework Overview" width="96%">
 </p>
 
-## Overview
+PRAM operates in three closed-form statistical modules:
 
-**PRAM (Partwise Reasoning across Modalities)** activates latent cross-modal knowledge in frozen multimodal encoders without direct target-modality pairs or encoder fine-tuning. Given two separately provided modality–pivot collections $\mathcal{D}_{AP}$ and $\mathcal{D}_{PB}$, PRAM operates in three closed-form statistical stages:
+1. **Multi-Granularity Covariance Regularization (`pram/mcr.py`)** — Retains global and local vectors from frozen encoders, applies edge-wise centering with modality scalar scaling, and stabilizes local covariance estimation through adaptive cross-part shrinkage.
+2. **Pivot-Based Spectral Relational Reasoning (`pram/psrr.py`)** — Composes regularized $A$–$P$ and $P$–$B$ covariances via equal-edge pivot averaging ($H_g$), whitens endpoints ($\lambda = 0.5$), extracts paired projection directions with bounded singular values ($\sigma_{gk} \le 1$), and computes composite Gaussian log-likelihood ratio scores.
+3. **Multi-Granularity Score Fusion (`pram/msf.py`)** — Fuses global and local correlation scores ($s_C$) with covariance-weighted pivot-map cosine scores ($s_V$), applies symmetric training-bank standardization (up to 2,000 fixed rows per endpoint), and incorporates cross-fitted discriminant pivot-association ($s_T$) and class-semantic ($s_A$) scores for classification.
 
-1. **Multi-Granularity Covariance Regularization (`pram/mcr.py`)** — Retains both global and partwise local vectors from frozen encoders, applies edge-wise centering with modality scalar scaling, and stabilizes local covariance estimation via adaptive cross-part shrinkage.
-2. **Pivot-Based Spectral Relational Reasoning (`pram/psrr.py`)** — Composes regularized $A$–$P$ and $P$–$B$ covariances through equal-edge pivot averaging, whitens both endpoints with relative ridge $\lambda = 0.5$, extracts paired projection directions and bounded correlation strengths ($\sigma_{gk} \le 1$) via SVD, and computes composite Gaussian log-likelihood ratio matching scores.
-3. **Multi-Granularity Score Fusion (`pram/msf.py`)** — Aggregates global and local correlation scores alongside covariance-weighted pivot-map cosine scores, applies symmetric training-bank standardization (up to 2,000 fixed rows per endpoint), and incorporates cross-fitted discriminant pivot-association and class-semantic scores when pivot states or class prompts repeat.
+---
 
-Across ten datasets on frozen ImageBind and LanguageBind encoders, PRAM ranks first in **16 of 17** cross-modal classification settings and **19 of 20** cross-modal retrieval settings, and leads all **16/16** metrics across three real-world sensing scenarios (robot localization, cross-device vehicle localization, and wearable IMU action recognition).
-
-## Installation
+## ⚡ Quick Start
 
 ```bash
-git clone https://github.com/luo1yan/PRAM.git
+# Clone repository and install
+git clone https://github.com/Luo1Yan/PRAM.git
 cd PRAM
 pip install -e .
+
+# Run a single real benchmark setting (auto-downloads IB UTD-MHAD depth-IMU from Hugging Face)
+python run.py \
+    --config configs/quick_real.json \
+    --relations ib_utd_depth_imu \
+    --hf_repo Rowance/PRAM-features \
+    --data_dir ./data_cache \
+    --output results/ib_utd_depth_imu.json
 ```
 
-Or install the core dependencies directly:
+Run the complete starter real-dataset bundle (8 main benchmark settings across ImageBind and LanguageBind) or the wearable IMU-only sensing benchmark directly:
 
 ```bash
+# 8 real benchmark settings (UTD-MHAD, Ego4D, VGGSound, CART, MAVD, MSR-VTT)
+python run.py \
+    --config configs/quick_real.json \
+    --hf_repo Rowance/PRAM-features \
+    --data_dir ./data_cache \
+    --output results/quick_real.json
+
+# Real-world wearable IMU-only action recognition (UTD-MHAD & CZU-MHAD, 3-seed C3T protocol)
+python run.py \
+    --config configs/sensing_wearable.json \
+    --hf_repo Rowance/PRAM-features \
+    --data_dir ./data_cache \
+    --output results/sensing_wearable.json
+```
+
+---
+
+## 🔧 Installation & Data Preparation
+
+### Prerequisites
+
+- **Python** 3.10 or higher
+- **PyTorch** 2.0 or higher (runs seamlessly on both CPU and CUDA)
+- **NumPy** 1.24+, **huggingface_hub** 0.23+
+
+```bash
+git clone https://github.com/Luo1Yan/PRAM.git
+cd PRAM
 pip install -r requirements.txt
 ```
 
-## Quickstart
+### Option A: Pre-Extracted Frozen Feature Packs (Recommended)
 
-### 1. Run the End-to-End Example
+Standardized feature packs (`float32` global + `float16` local `.npz`) are hosted on Hugging Face at [`Rowance/PRAM-features`](https://huggingface.co/datasets/Rowance/PRAM-features). Passing `--hf_repo Rowance/PRAM-features` to `run.py` downloads each required pack automatically into `--data_dir` on first use and reuses the local cache thereafter.
 
-```bash
-python examples/quickstart.py --device cpu
-```
-
-This script generates a disjoint-collection linear–Gaussian multi-part benchmark (no direct $A$–$B$ pairs) and compares `Frozen Cosine`, `Global-only PRAM`, and `Full PRAM` on bidirectional retrieval and class-prompt classification:
+Expected local cache layout under `--data_dir` (default `./data_cache`):
 
 ```text
-Method               A->B R@1   B->A R@1   Mean R@1  Prompt acc.  Balanced acc.
-Frozen Cosine            1.4%       0.0%       0.7%         6.2%           6.2%
-Global-only PRAM         1.4%       2.8%       2.1%         7.8%           7.8%
-Full PRAM              100.0%     100.0%     100.0%       100.0%         100.0%
+data_cache/
+└── packs/
+    ├── main/
+    │   ├── ib_utd_depth_imu.npz
+    │   ├── ib_ego4d_audio_imu.npz
+    │   ├── ib_ego4d_text_imu.npz
+    │   ├── ib_vggsound_text_audio.npz
+    │   ├── ib_cart_thermal_imu.npz
+    │   ├── ib_mavd_audio_thermal.npz
+    │   ├── ib_batvision_audio_depth.npz
+    │   ├── ib_tartanrgbt_depth_thermal.npz
+    │   ├── ib_tartanrgbt_text_thermal.npz
+    │   ├── ib_nyuv2_text_depth.npz
+    │   ├── ib_nyuv2_text_depth_category.npz
+    │   ├── lb_msrvtt_video_audio.npz
+    │   ├── lb_mavd_thermal_audio.npz
+    │   ├── lb_batvision_depth_audio.npz
+    │   ├── lb_vggsound_image_audio.npz
+    │   ├── lb_nyuv2_image_depth.npz
+    │   ├── lb_ucf101_image_video.npz
+    │   ├── lb_tartanrgbt_image_thermal.npz
+    │   ├── lb_tartanrgbt_thermal_depth.npz
+    │   ├── lb_tartanrgbt_video_depth.npz
+    │   └── lb_tartanrgbt_video_thermal.npz
+    └── sensing/
+        ├── robot_ms2.npz
+        ├── robot_obv.npz
+        ├── vehicle_vividpp_to_ms2.npz
+        ├── wearable_utd_mhad.npz
+        └── wearable_czu_mhad.npz
 ```
 
-### 2. Minimal Python API
+Compact starter packs (`ib_utd_depth_imu`, `ib_ego4d_audio_imu`, `ib_ego4d_text_imu`, `ib_vggsound_text_audio`, `ib_cart_thermal_imu`, `ib_mavd_audio_thermal`, `lb_msrvtt_video_audio`, `lb_mavd_thermal_audio`, `wearable_utd_mhad`, and `wearable_czu_mhad`) are immediately available in [`Rowance/PRAM-features`](https://huggingface.co/datasets/Rowance/PRAM-features); larger spatial packs can be downloaded into the same layout or extracted locally via Option B.
+
+### Option B: Extract Frozen Features from Raw Datasets
+
+To build `.npz` relation packs directly from raw datasets and upstream frozen checkpoints ([ImageBind](https://github.com/facebookresearch/ImageBind), [LanguageBind](https://github.com/PKU-YuanGroup/LanguageBind), [AnyThermal](https://huggingface.co/theairlabcmu/AnyThermal), [DINOv2-B](https://huggingface.co/facebook/dinov2-base), ResNet18, [AnyMo](https://huggingface.co/CRUISEResearchGroup/AnyMo)):
+
+```bash
+# ImageBind global + spatial/temporal local features (with optional edge-only spatial registration)
+python scripts/extract_imagebind.py --manifest path/to/manifest.json --output data_cache/packs/main/custom_ib.npz
+
+# LanguageBind global + block-12 8x8 spatial / 4-segment temporal local features
+python scripts/extract_languagebind.py --manifest path/to/manifest.json --output data_cache/packs/main/custom_lb.npz
+
+# Sensing encoders (AnyThermal, DINOv2-B, ResNet18, AnyMo)
+python scripts/extract_sensing.py --manifest path/to/manifest.json --output data_cache/packs/sensing/custom_sensing.npz
+```
+
+---
+
+## 🚦 Usage
+
+### Main Cross-Modal Benchmarks (Tables 1 & 2)
+
+```bash
+# ImageBind benchmark settings (10 retrieval + 8 classification)
+python run.py \
+    --config configs/main_imagebind.json \
+    --data_dir ./data_cache \
+    --hf_repo Rowance/PRAM-features \
+    --output results/main_imagebind.json
+
+# LanguageBind benchmark settings (10 retrieval + 9 classification)
+python run.py \
+    --config configs/main_languagebind.json \
+    --data_dir ./data_cache \
+    --hf_repo Rowance/PRAM-features \
+    --output results/main_languagebind.json
+```
+
+### Ablation Studies (Table 3)
+
+```bash
+python run.py \
+    --config configs/ablations.json \
+    --data_dir ./data_cache \
+    --hf_repo Rowance/PRAM-features \
+    --output results/ablations.json
+```
+
+### Real-World Sensing Scenarios
+
+```bash
+# Robot thermal-to-depth localization (MS2 & OBV)
+python run.py --config configs/sensing_robot.json --data_dir ./data_cache --output results/sensing_robot.json
+
+# Cross-device nighttime vehicle localization (ViViD++ -> MS2)
+python run.py --config configs/sensing_vehicle.json --data_dir ./data_cache --output results/sensing_vehicle.json
+
+# Wearable IMU-only action recognition (UTD-MHAD & CZU-MHAD)
+python run.py --config configs/sensing_wearable.json --hf_repo Rowance/PRAM-features --data_dir ./data_cache --output results/sensing_wearable.json
+```
+
+### Mechanism & Sensitivity Analysis (Table 4 & Sensitivity Controls)
+
+```bash
+python run.py \
+    --config configs/mechanisms.json \
+    --data_dir ./data_cache \
+    --hf_repo Rowance/PRAM-features \
+    --output results/mechanisms.json
+```
+
+### Using PRAM in Your Own Python Code
 
 ```python
-import torch
 from pram import (
     ModalityInput,
     PRAM,
@@ -70,79 +223,134 @@ from pram import (
     evaluate_classification,
 )
 
-# Frozen global embeddings [N, d0] and optional aligned local features [N, G, d_loc]
-ap_a = ModalityInput(global_feat=a_global_train, local_feat=a_local_train)
-ap_p = ModalityInput(global_feat=p_global_ap,    local_feat=p_local_ap)
-pb_p = ModalityInput(global_feat=p_global_pb,    local_feat=p_local_pb)
-pb_b = ModalityInput(global_feat=b_global_train, local_feat=b_local_train)
+# Frozen global embeddings [N, d0] and optional aligned local vectors [N, G, d_loc]
+ap_a = ModalityInput(global_feat=a_global_ap, local_feat=a_local_ap)
+ap_p = ModalityInput(global_feat=p_global_ap, local_feat=p_local_ap)
+pb_p = ModalityInput(global_feat=p_global_pb, local_feat=p_local_pb)
+pb_b = ModalityInput(global_feat=b_global_pb, local_feat=b_local_pb)
 
-# Fit strictly on separate A-P and P-B collections (no A-B pairs required)
+# Fit strictly on separate A-P and P-B collections (no direct A-B pairs)
 model = PRAM(PRAMConfig()).fit(ap_a, ap_p, pb_p, pb_b, is_class_prompt=False)
 
-# Retrieval readout R (supports optional chunk_size for large galleries)
+# Retrieval readout R and classification readout S (with optional chunk_size)
 ret_scores = model.score_retrieval(test_a, test_b, chunk_size=256)
 ret_metrics = evaluate_bidirectional_retrieval(ret_scores, ks=(1, 5, 10))
-
-# Classification readout S (class-prompt matching or 10-neighbor label transfer)
-cls_scores = model.score_classification(prompts_a, test_b, chunk_size=256)
-cls_metrics = evaluate_classification(cls_scores.T, test_labels_b, protocol="class_prompt")
 ```
 
-Single-vector modalities (such as text or global audio/IMU embeddings) simply pass `local_feat=None`; PRAM automatically broadcasts them across the aligned local grid while excluding constant broadcast self-blocks from shrinkage estimation and setting the structural weight $\omega = 1/G$ when exactly one modality has multiple local parts.
+---
 
-### 3. Configuration & Ablation Switches
+## 📊 Main Results
 
-All fixed estimator controls from the paper are exposed via `PRAMConfig`:
+Mean retrieval R@10 and classification Top-1 (%) across all 10 benchmark datasets (see the [Project Page](https://luo1yan.github.io/PRAM/) for complete per-setting tables covering all 17 classification, 20 retrieval, and 16 sensing metrics):
 
-| Parameter | Default | Description |
-| :--- | :---: | :--- |
-| `relative_ridge` | `0.5` | Relative ridge coefficient $\lambda$ for all covariance routes |
-| `max_directions` | `256` | Maximum retained projection directions per component |
-| `max_bank_size` | `2000` | Maximum training reference-bank rows per endpoint (`seed=0`) |
-| `max_gallery_size` | `10000` | Maximum labeled training gallery size for 10-NN transfer (`seed=0`) |
-| `knn_k` | `10` | Neighbor count for cross-modal label transfer |
-| `state_decimals` | `4` | Rounding precision for pivot and class-prompt state quantization |
-| `lbfgs_max_iter` | `200` | Maximum L-BFGS steps for 2-fold cross-fitted posterior pooling (`seed=0`) |
-| `scale_floor` | `1e-12` | Numerical floor before square roots and divisions |
-| `corr_cap` | `1 - 1e-6` | Upper correlation clip preventing singular Gaussian coordinates |
-| `use_global` / `use_local` | `True` / `True` | Toggle global and partwise local components |
-| `use_shrinkage` / `use_quadratic` | `True` / `True` | Toggle MCR cross-part shrinkage and Gaussian quadratic terms |
-| `use_covariance_score` / `use_standardization` | `True` / `True` | Toggle covariance-weighted pivot maps ($s_V$) and reference-bank standardization |
-| `use_pivot_associations` / `use_class_semantics` | `True` / `True` | Toggle pivot-association ($s_T$) and class-semantic ($s_A$) scores |
+| Method | ImageBind R@10 | ImageBind Top-1 | LanguageBind R@10 | LanguageBind Top-1 | Overall Mean |
+| :--- | :---: | :---: | :---: | :---: | :---: |
+| Frozen Cosine | 11.2 | 16.7 | 32.7 | 65.2 | 31.5 |
+| Global-only PRAM | 22.4 | 43.1 | 30.1 | 79.5 | 43.8 |
+| Partwise ASIF | 26.5 | 35.6 | 31.3 | 72.1 | 41.4 |
+| Partwise MMBind | 28.0 | 44.8 | 27.5 | 72.7 | 43.2 |
+| **PRAM (Ours)** | **32.9** | **50.6** | **53.4** | **80.2** | **54.3** |
 
-## Repository Structure
+Real-world sensing highlights (frozen task-specific encoders, zero target-pair supervision):
+- **Robot Localization**: **55.3%** within 5 m on MS2 (vs. MINIMA `33.4%`); **31.9%** within 0.25 m on OBV (vs. MINIMA `23.1%`).
+- **Cross-Device Nighttime Vehicle Localization (ViViD++ → MS2)**: **26.2%** within 5 m (vs. ThermalGen `9.6%`); **15.0%** on a separate traversal (vs. ASIF `8.3%`).
+- **Wearable IMU-Only Action Recognition**: **80.6%** Top-1 on UTD-MHAD (vs. C3T `52.7%`); **90.8%** Top-1 on CZU-MHAD (vs. CA `85.9%`).
+
+---
+
+## 📁 Project Structure
 
 ```text
 PRAM/
-├── pram/
-│   ├── __init__.py       # Public package exports
-│   ├── config.py         # PRAMConfig controls and deterministic sampling
-│   ├── mcr.py            # Multi-Granularity Covariance Regularization (MCR)
-│   ├── psrr.py           # Pivot-Based Spectral Relational Reasoning (PSRR)
-│   ├── msf.py            # Multi-Granularity Score Fusion (MSF) & reference banks
-│   ├── metrics.py        # Tie-aware expected Recall@K and classification metrics
-│   └── model.py          # High-level PRAM and ModalityInput APIs
-├── examples/
-│   └── quickstart.py     # Self-contained CPU/GPU synthetic benchmark example
-├── tests/
-│   └── test_pram_e2e.py  # End-to-end verification suite (14 tests)
-├── docs/                 # Bilingual (EN / 中文) GitHub Pages project website
+├── README.md
+├── LICENSE
 ├── pyproject.toml
 ├── requirements.txt
-└── LICENSE
+├── run.py                         # Unified CLI entry point for all experiments
+├── configs/                       # JSON experiment & estimator configurations
+│   ├── default_pram.json          # Default fixed paper hyperparameters
+│   ├── quick_real.json            # Starter real-dataset bundle (8 settings)
+│   ├── main_imagebind.json        # Full ImageBind benchmark settings
+│   ├── main_languagebind.json     # Full LanguageBind benchmark settings
+│   ├── ablations.json             # Component ablation suite
+│   ├── sensing_robot.json         # MS2 & OBV robot localization
+│   ├── sensing_vehicle.json       # ViViD++ -> MS2 cross-device vehicle localization
+│   ├── sensing_wearable.json      # UTD-MHAD & CZU-MHAD wearable IMU recognition
+│   └── mechanisms.json            # Pair-budget, shuffled-pivot & sensitivity analyses
+├── pram/                          # Core PyTorch statistical modules
+│   ├── config.py                  # PRAMConfig controls and deterministic sampling
+│   ├── mcr.py                     # Multi-Granularity Covariance Regularization
+│   ├── psrr.py                    # Pivot-Based Spectral Relational Reasoning
+│   ├── msf.py                     # Multi-Granularity Score Fusion & reference banks
+│   ├── registration.py            # Edge-only spatial offset registration
+│   ├── metrics.py                 # Tie-aware expected Recall@K & classification metrics
+│   └── model.py                   # High-level PRAM & ModalityInput interface
+├── data/                          # Portable feature-pack schema, splits & HF downloader
+│   ├── schema.py                  # RelationPack (.npz / .pt) I/O and validation
+│   ├── splits.py                  # Disjoint AP/PB halves, pair budgets & C3T splits
+│   └── hub.py                     # Local / Hugging Face Hub pack resolution
+├── evaluation/                    # Benchmark & sensing scenario evaluators
+│   ├── runner.py                  # Main retrieval & classification evaluation
+│   ├── ablations.py               # Component ablation suite
+│   ├── sensing.py                 # Robot, vehicle & wearable sensing evaluators
+│   └── mechanisms.py              # Pair-budget, pivot-shuffle & multi-seed evaluators
+├── scripts/                       # Feature extraction & Hugging Face upload helpers
+│   ├── extract_imagebind.py
+│   ├── extract_languagebind.py
+│   ├── extract_sensing.py
+│   └── upload_to_hf.py
+├── tests/                         # End-to-end verification test suite
+│   └── test_pram_e2e.py
+└── docs/                          # Bilingual GitHub Pages project website
 ```
 
-## Testing
+---
 
-Run the full test suite on CPU:
+## ⚙️ Configuration
+
+All fixed estimator controls (`configs/default_pram.json`) can be customized and passed via `--pram_config`:
+
+```json
+{
+  "relative_ridge": 0.5,
+  "max_directions": 256,
+  "max_bank_size": 2000,
+  "max_gallery_size": 10000,
+  "knn_k": 10,
+  "state_decimals": 4,
+  "lbfgs_max_iter": 200,
+  "scale_floor": 1e-12,
+  "corr_cap": 0.999999,
+  "lda_diag_eps": 1e-6,
+  "class_prompt_cv_seed": 7
+}
+```
+
+Override estimator parameters on any benchmark run without editing code:
+
+```bash
+python run.py \
+    --config configs/quick_real.json \
+    --pram_config configs/default_pram.json \
+    --data_dir ./data_cache \
+    --device cpu
+```
+
+---
+
+## 🧪 Testing
+
+Run the full 25-test unit and end-to-end CLI verification suite on CPU:
 
 ```bash
 CUDA_VISIBLE_DEVICES=-1 pytest -v
 ```
 
+---
+
 ## Citation
 
-If you find PRAM useful in your research, please cite:
+If you find this work useful in your research, please consider citing:
 
 ```bibtex
 @article{chen2026pram,
@@ -154,6 +362,8 @@ If you find PRAM useful in your research, please cite:
 }
 ```
 
-## License
+<div align="center">
 
-This project is released under the [MIT License](LICENSE).
+**[Back to Top](#pram-activating-latent-multimodal-knowledge-through-partwise-reasoning)**
+
+</div>

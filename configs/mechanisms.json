@@ -1,0 +1,18 @@
+{
+  "mode": "mechanism",
+  "chunk_size": 256,
+  "pair_budgets": [0.02, 0.05, 0.20, 1.0],
+  "budget_seeds": [0, 1],
+  "test_shuffled_pivot": true,
+  "test_five_seeds": true,
+  "sensitivity": {
+    "ridge_0.25": {"relative_ridge": 0.25},
+    "ridge_0.5": {"relative_ridge": 0.5},
+    "ridge_1": {"relative_ridge": 1.0}
+  },
+  "relations": [
+    {"pack": "packs/main/ib_tartanrgbt_depth_thermal.npz"},
+    {"pack": "packs/main/ib_utd_depth_imu.npz"},
+    {"pack": "packs/main/lb_tartanrgbt_thermal_depth.npz"}
+  ]
+}

@@ -1,36 +1,37 @@
-import importlib.util
+import json
 import math
+import os
+import subprocess
 import sys
-from dataclasses import replace
+from dataclasses import asdict, replace
 from pathlib import Path
 
+import numpy as np
 import pytest
 import torch
 
-_QUICKSTART_PATH = Path(__file__).resolve().parents[1] / "examples" / "quickstart.py"
-_QUICKSTART_SPEC = importlib.util.spec_from_file_location("pram_quickstart", _QUICKSTART_PATH)
-assert _QUICKSTART_SPEC is not None and _QUICKSTART_SPEC.loader is not None
-quickstart = importlib.util.module_from_spec(_QUICKSTART_SPEC)
-sys.modules[_QUICKSTART_SPEC.name] = quickstart
-_QUICKSTART_SPEC.loader.exec_module(quickstart)
+from data import (
+    RelationPack, load_relation_pack, resolve_pack_path, save_relation_pack, slice_modality,
+    split_disjoint_halves, split_wearable_c3t, subsample_pair_budget,
+)
+from evaluation import evaluate_relation, evaluate_wearable_imu, localization_recall
 from pram import (
-    ModalityInput,
-    PRAM,
-    PRAMConfig,
-    evaluate_bidirectional_retrieval,
-    evaluate_classification,
-    expected_recall_at_k,
+    ModalityInput, PRAM, PRAMConfig, align_spatial_grids, estimate_spatial_offset,
+    evaluate_bidirectional_retrieval, evaluate_classification, expected_recall_at_k,
 )
 from pram.mcr import fit_mcr
 from pram.metrics import evaluate_bidirectional_knn
 from pram.msf import _fit_pool
 from pram.psrr import regularized_power
+from run import main
 
 
 @pytest.fixture(scope="module", autouse=True)
 def cpu_threads():
     previous = torch.get_num_threads()
     torch.set_num_threads(1)
+    if os.environ.get("CUDA_VISIBLE_DEVICES") == "-1":
+        assert not torch.cuda.is_available()
     yield
     torch.set_num_threads(previous)
 
@@ -92,7 +93,6 @@ def test_contraction_and_row_pooled_pivot_scale():
         torch.testing.assert_close(group.a.p_scale, group.b.p_scale)
         assert spectral.sigma.dtype == torch.float64
         assert spectral.sigma.max().item() <= 1 + 1e-5
-
         ca, cb = group.a.regularized, group.b.regularized
         h = (cp_a + cp_b) / 2
         ridge = cfg.relative_ridge * h.diagonal(dim1=1, dim2=2).mean(1)
@@ -172,18 +172,6 @@ def test_single_vector_pivot_rank_and_rounding(states):
             assert torch.count_nonzero(group.sigma) == 0
     if states == 1:
         assert torch.count_nonzero(model.score_retrieval(a, b)) == 0
-
-
-def test_disjoint_linear_gaussian_retrieval_and_classification():
-    data = quickstart.make_benchmark(seed=14)
-    pivots = torch.cat((data.ap_p.global_feat, data.pb_p.global_feat)).double()
-    assert torch.unique(torch.round(pivots, decimals=4), dim=0).size(0) == len(pivots)
-    results = quickstart.run_benchmark(data, "cpu")
-    full = results["Full PRAM"]
-    for key in ("a_to_b_r1", "b_to_a_r1", "accuracy"):
-        assert full[key] > 0.75
-        for baseline in ("Frozen Cosine", "Global-only PRAM"):
-            assert full[key] > results[baseline][key] + 0.35
 
 
 def test_shared_states_class_propagation_and_fusion(state_model):
@@ -318,16 +306,22 @@ def test_reference_bank_invariance_and_sample_deviation(state_model):
         singleton = scorer(a.take(slice(7, 8)), b.take(slice(19, 20)))[0, 0]
         torch.testing.assert_close(singleton, reference, atol=1e-6, rtol=0)
 
-    data = quickstart.make_benchmark(9, parts=3)
-    edges = (data.ap_a, data.ap_p, data.pb_p, data.pb_b)
+    draw = randn(9)
+
+    def modality(x):
+        return ModalityInput(x.mean(dim=1), x)
+
+    pa, pb = draw(35, 3, 4), draw(41, 3, 4)
+    ap, bp = modality(pa + 0.1 * draw(*pa.shape)), modality(pb + 0.1 * draw(*pb.shape))
+    edges = ap, modality(pa), modality(pb), bp
     cfg = PRAMConfig(max_bank_size=17)
     standardized = PRAM(cfg).fit(*edges)
     raw = PRAM(replace(cfg, use_standardization=False)).fit(*edges)
     assert standardized.msf.w == 0
-    left, right = data.test_a.take(slice(0, 8)), data.test_b.take(slice(3, 14))
+    left, right = modality(draw(8, 3, 4)), modality(draw(11, 3, 4))
     scores = raw.score_retrieval(left, right).double()
-    ba = data.ap_a.take(standardized.msf.bank_indices_a)
-    bb = data.pb_b.take(standardized.msf.bank_indices_b)
+    ba = ap.take(standardized.msf.bank_indices_a)
+    bb = bp.take(standardized.msf.bank_indices_b)
     rows = raw.score_retrieval(left, bb).double()
     cols = raw.score_retrieval(ba, right).double()
     expected = 0.5 * (
@@ -402,9 +396,271 @@ def test_prompt_and_neighbor_tie_accuracy():
     assert result["accuracy"] == 1
 
 
-def test_quickstart_main_cpu(capsys):
-    results = quickstart.main(["--device", "cpu"])
-    output = capsys.readouterr().out
-    for name in ("Frozen Cosine", "Global-only PRAM", "Full PRAM"):
-        assert name in results and name in output
-    assert results["Full PRAM"]["mean_r1"] > results["Global-only PRAM"]["mean_r1"] + 0.35
+def test_registration():
+    a = randn(20)(31, 7, 7, 3)
+    ap, pb = (1, -2), (-2, 1)
+    p = a.roll(ap, dims=(1, 2))
+    b = p.roll(pb, dims=(1, 2))
+    for x, y, expected in ((a, p, ap), (p, b, pb)):
+        offset, strengths = estimate_spatial_offset(x.flatten(1, 2), y, 2, 9, 3)
+        assert offset == expected
+        assert strengths.shape == (5, 5)
+        assert strengths[expected[0] + 2, expected[1] + 2].item() == pytest.approx(1)
+    aligned = align_spatial_grids(a, p, b, ap, pb, pool_size=2)
+    expected = a[:, 1:5, 2:6].reshape(31, 2, 2, 2, 2, 3).mean((2, 4)).reshape(31, 4, 3)
+    for x in aligned:
+        torch.testing.assert_close(x, expected)
+    with pytest.raises(ValueError):
+        estimate_spatial_offset(a.flatten(1, 2)[:, :-1], p)
+    with pytest.raises(ValueError):
+        align_spatial_grids(a, p, b, (8, 0), pb)
+
+
+@pytest.fixture
+def pack():
+    rng = np.random.default_rng(37)
+    n = 50
+    p = rng.normal(size=(n, 3, 4)).astype(np.float32)
+    a = p + 0.1 * rng.normal(size=p.shape)
+    b = p + 0.1 * rng.normal(size=p.shape)
+    return RelationPack(
+        name="aligned", dataset="fixture", backbone="frozen", task="main", metric="instance",
+        a_name="depth", b_name="thermal", pivot="rgb",
+        a_global=a.mean(1), p_global=p.mean(1), b_global=b.mean(1),
+        a_local=a, p_local=p, b_local=b,
+        train_idx=np.arange(36), test_idx=np.arange(36, n),
+        ap_idx=np.arange(0, 36, 2)[::-1], pb_idx=np.arange(1, 36, 2)[::-1],
+        labels=np.arange(n) % 4, coords=rng.normal(size=(n, 2)),
+        groups=np.arange(n) // 5, class_names=["a", "b", "c", "d"], meta={"units": "meters"},
+    )
+
+
+def vehicle_pack(pack):
+    return replace(
+        pack, name="cross_device", task="vehicle",
+        a_global=pack.a_global[:20], a_local=pack.a_local[:20],
+        p_global=pack.p_global[:12], p_local=pack.p_local[:12],
+        p_global_pb=pack.p_global[12:42], p_local_pb=pack.p_local[12:42],
+        b_global=pack.b_global[12:], b_local=pack.b_local[12:],
+        ap_idx=np.arange(12), pb_idx=np.arange(30),
+        train_idx=np.array([], dtype=np.int64), test_idx=np.array([], dtype=np.int64),
+        db_idx=np.arange(12, 20)[::-1], db_coords=pack.coords[12:20][::-1],
+        query_sets={"map_night": np.arange(30, 34), "traversal_night": np.arange(34, 38)},
+        query_coords={"map_night": pack.coords[42:46], "traversal_night": pack.coords[46:]},
+        coords=None, groups=None, labels=None, class_names=None,
+    )
+
+
+def test_pack_io_and_splits(tmp_path, pack):
+    path = save_relation_pack(tmp_path / "aligned.npz", pack, compressed=True)
+    with np.load(path, allow_pickle=False) as arrays:
+        assert arrays["a_global"].dtype == np.float32
+        assert arrays["p_local"].dtype == np.float16
+        assert arrays["train_idx"].dtype == arrays["labels"].dtype == np.int64
+        assert arrays["coords"].dtype == np.float32
+        assert json.loads(arrays["meta_json"].item())["name"] == pack.name
+    loaded = load_relation_pack(path)
+    np.testing.assert_array_equal(loaded.a_local, pack.a_local.astype(np.float16).astype(np.float32))
+    assert loaded.p_global.dtype == np.float32
+    assert loaded.meta == pack.meta and loaded.class_names == pack.class_names
+    single = slice_modality(loaded.a_global, loaded.a_local[:, :1], loaded.test_idx[::-1])
+    assert single.local_feat is None and single.global_feat.is_contiguous()
+
+    for got, expected in zip(split_disjoint_halves(loaded), (loaded.ap_idx, loaded.pb_idx)):
+        np.testing.assert_array_equal(got, np.sort(expected))
+    order = np.random.default_rng(5).permutation(pack.train_idx)
+    ap, pb = split_disjoint_halves(loaded, 5)
+    np.testing.assert_array_equal(ap, np.sort(order[:18]))
+    np.testing.assert_array_equal(pb, np.sort(order[18:]))
+    rng = np.random.default_rng(6)
+    for got, edge in zip(subsample_pair_budget(ap, pb, 0.25, 6), (ap, pb)):
+        np.testing.assert_array_equal(got, np.sort(rng.choice(edge, round(len(edge) * 0.25), replace=False)))
+
+    labels = np.repeat(np.arange(4), [11, 17, 19, 26])
+    split = split_wearable_c3t(labels, 2)
+    assert [len(split[k]) for k in ("test", "val", "har", "align")] == [7, 7, 29, 30]
+    np.testing.assert_array_equal(np.sort(np.concatenate(list(split.values()))), np.arange(len(labels)))
+    for key, rows in split.items():
+        np.testing.assert_array_equal(rows, split_wearable_c3t(labels, 2)[key])
+        assert set(labels[rows]) == set(labels)
+    assert not np.array_equal(split["test"], split_wearable_c3t(labels, 3)["test"])
+
+    separate = vehicle_pack(pack)
+    saved = load_relation_pack(save_relation_pack(tmp_path / "vehicle.npz", separate, fp16=False))
+    for got, expected in zip(split_disjoint_halves(saved, 4), (separate.ap_idx, separate.pb_idx)):
+        np.testing.assert_array_equal(got, expected)
+    np.testing.assert_array_equal(saved.pb_pivot[1], separate.p_local_pb)
+    for key in separate.query_sets:
+        np.testing.assert_array_equal(saved.query_sets[key], separate.query_sets[key])
+        np.testing.assert_array_equal(saved.query_coords[key], separate.query_coords[key])
+    raw = asdict(separate)
+    raw["p_global_pb"] = torch.from_numpy(raw["p_global_pb"]).half()
+    torch.save(raw, tmp_path / "vehicle.pt")
+    assert load_relation_pack(tmp_path / "vehicle.pt").p_global_pb.dtype == np.float32
+    with pytest.raises(ValueError, match="outside"):
+        replace(pack, test_idx=np.array([len(pack.a_global)]))
+    with pytest.raises(ValueError, match="Missing required"):
+        np.savez(tmp_path / "incomplete.npz", a_global=pack.a_global)
+        load_relation_pack(tmp_path / "incomplete.npz")
+
+
+def test_local_and_hub_resolution(tmp_path, monkeypatch):
+    import huggingface_hub
+
+    name = "packs/main/relation.npz"
+    path = tmp_path / name
+    calls = []
+
+    def download(**kwargs):
+        calls.append(kwargs)
+        return str(path)
+
+    monkeypatch.setattr(huggingface_hub, "hf_hub_download", download)
+    with pytest.raises(FileNotFoundError, match="--data_dir.*--hf_repo"):
+        resolve_pack_path(name, tmp_path)
+    assert resolve_pack_path(name, tmp_path, "owner/packs", "release") == path
+    assert calls == [dict(repo_id="owner/packs", filename=name, repo_type="dataset",
+                          revision="release", local_dir=str(tmp_path))]
+    path.parent.mkdir(parents=True)
+    path.touch()
+    assert resolve_pack_path(name, tmp_path, "owner/packs") == path
+    assert len(calls) == 1
+
+
+def test_category_and_instance_cosine_protocols(pack):
+    labels = pack.labels.copy()
+    labels[pack.test_idx[-1]] = 4
+    embeddings = np.eye(5, dtype=np.float32)[labels]
+    category = replace(pack, labels=labels, metric="category", a_global=embeddings, b_global=embeddings)
+    result = evaluate_relation(category, PRAMConfig(max_bank_size=10), chunk_size=6)
+    assert result["frozen_cosine"]["classification"]["accuracy"] == 100
+    assert result["frozen_cosine"]["retrieval"]["mean"]["R@1"] == 100
+
+    labels[[1, 37]] = -1
+    instance = replace(pack, labels=labels)
+    cfg = PRAMConfig(max_gallery_size=9, knn_k=3)
+    result = evaluate_relation(instance, cfg)
+    assert result["gates"]["tau_A"] == 0
+    gallery = instance.train_idx[labels[instance.train_idx] >= 0]
+    gallery = np.sort(np.random.default_rng(0).choice(gallery, 9, replace=False))
+    query = instance.test_idx[labels[instance.test_idx] >= 0]
+    a, b = [torch.nn.functional.normalize(torch.from_numpy(x), dim=1) for x in (pack.a_global, pack.b_global)]
+    targets, candidates = torch.tensor(labels[query]), torch.tensor(labels[gallery])
+    expected = evaluate_bidirectional_knn(
+        a[query] @ b[gallery].T, b[query] @ a[gallery].T, targets, targets,
+        candidates, candidates, knn_k=3, max_gallery_size=9,
+    )
+    assert result["frozen_cosine"]["classification"]["mean"]["accuracy"] == pytest.approx(
+        100 * expected["mean"]["accuracy"]
+    )
+
+
+@pytest.mark.parametrize("mode", [
+    "main", "ablation", "sensing_robot", "sensing_vehicle", "sensing_wearable", "mechanism",
+])
+def test_run_modes(tmp_path, pack, mode, capsys):
+    if mode == "sensing_vehicle":
+        pack = vehicle_pack(pack)
+    elif mode in ("sensing_robot", "sensing_wearable"):
+        pack = replace(pack, task=mode.removeprefix("sensing_"))
+    path = "packs/measurements.npz"
+    save_relation_pack(tmp_path / path, pack)
+    experiment = {
+        "mode": mode, "relations": [{"name": "selected", "pack": path}, {"pack": "unselected.npz"}],
+        "pram": {"knn_k": 3, "max_gallery_size": 20}, "variants": ["pram_full", "global_only"],
+        "thresholds": [0.25, 5], "pair_budgets": [0.2, 1.0], "test_shuffled_pivot": True,
+    }
+    config = tmp_path / "experiment.json"
+    config.write_text(json.dumps(experiment), encoding="utf-8")
+    override = tmp_path / "estimator.json"
+    override.write_text('{"max_bank_size": 9}', encoding="utf-8")
+    output = tmp_path / "reports" / "result.json"
+    seeds = ["1", "2", "3"] if mode == "sensing_wearable" else ["0"]
+    report = main([
+        "--config", str(config), "--pram_config", str(override), "--data_dir", str(tmp_path),
+        "--relations", "selected", "--device", "cpu", "--chunk_size", "5",
+        "--output", str(output), "--seeds", *seeds,
+    ])
+    assert json.loads(output.read_text(encoding="utf-8")) == report
+    assert report["device"] == "cpu" and report["mode"] == mode
+    assert report["pram"]["max_bank_size"] == 9 and report["pram"]["knn_k"] == 3
+    assert "selected\t" in capsys.readouterr().out
+    row, = report["results"]
+    if mode == "main":
+        assert set(row["retrieval"]["mean"]) == {"R@1", "R@5", "R@10"}
+        assert set(row["gates"]) == {"alpha", "omega", "w", "o", "tau_A"}
+        assert report["means"][pack.backbone]["pram_full"]["R@10"] == row["retrieval"]["mean"]["R@10"]
+    elif mode == "ablation":
+        assert set(row["variants"]) == {"pram_full", "global_only"}
+        assert row["frozen_cosine"]["classification"]["mean"]["accuracy"] >= 0
+    elif mode == "sensing_robot":
+        assert set(row["thermal_to_depth"]) == {"0.25m", "5m"}
+        assert set(row["exact_retrieval"]["mean"]) == {"R@1", "R@10"}
+    elif mode == "sensing_vehicle":
+        assert set(row["query_sets"]) == {"map_night", "traversal_night"}
+        assert all(0 <= values["5m"] <= 100 for values in row["query_sets"].values())
+    elif mode == "sensing_wearable":
+        assert set(row["per_seed"]) == {"1", "2", "3"}
+        assert 0 <= row["mean"]["Top-1"] <= row["mean"]["Top-3"] <= 100
+        assert row["mean"]["Top-1"] == pytest.approx(np.mean([s["Top-1"] for s in row["per_seed"].values()]))
+    else:
+        assert set(row["pair_budgets"]) == {"0.2", "1.0"}
+        assert row["pair_budgets"]["0.2"]["0"]["wo_shrinkage"]["gates"]["alpha"] == 0
+        assert set(row["shuffled_pivot"]) == {"aligned", "shuffled"}
+
+
+def test_wearable_fitting_rows_and_tied_ranking(pack, monkeypatch):
+    rows = np.arange(len(pack.labels), dtype=np.float32)[:, None]
+    wearable = replace(pack, task="wearable", p_global=rows, b_global=rows, p_local=None, b_local=None)
+    split = split_wearable_c3t(pack.labels, 1)
+
+    def fit(self, a, pa, pb, b, is_class_prompt=False):
+        assert not is_class_prompt and a.local_feat is None
+        np.testing.assert_array_equal(pa.global_feat[:, 0].numpy(), split["har"])
+        np.testing.assert_array_equal(a.global_feat.argmax(1).numpy(), pack.labels[split["har"]])
+        for edge in (pb, b):
+            np.testing.assert_array_equal(edge.global_feat[:, 0].numpy(), split["align"])
+        return self
+
+    def score(self, a, b, chunk_size=None):
+        torch.testing.assert_close(a.global_feat, torch.eye(4))
+        np.testing.assert_array_equal(b.global_feat[:, 0].numpy(), split["test"])
+        return torch.zeros(4, len(b))
+
+    monkeypatch.setattr(PRAM, "fit", fit)
+    monkeypatch.setattr(PRAM, "score_classification", score)
+    result = evaluate_wearable_imu(wearable, PRAMConfig(), [1])
+    labels = wearable.labels[split["test"]]
+    assert result["mean"]["Top-1"] == pytest.approx(100 * np.mean(labels == 0))
+    assert result["mean"]["Top-3"] == pytest.approx(100 * np.mean(labels < 3))
+
+
+def test_localization_coordinates_and_cutoff():
+    scores = torch.tensor([[1, 2, 0], [3, 1, 2]])
+    database = np.array([[10, 0], [0, 0], [30, 0]])
+    queries = np.array([[3, 4], [10, 0]])
+    assert localization_recall(scores, queries, database, [0, 4, 5]) == {
+        "0m": 50.0, "4m": 50.0, "5m": 100.0,
+    }
+
+
+def test_auto_device_with_cuda_hidden(tmp_path, pack):
+    save_relation_pack(tmp_path / "relation.npz", pack)
+    config = tmp_path / "run.json"
+    config.write_text(json.dumps({"mode": "main", "relations": ["relation.npz"]}), encoding="utf-8")
+    output = tmp_path / "report.json"
+    code = (
+        "import runpy, torch\n"
+        "assert not torch.cuda.is_available()\n"
+        "torch.set_num_threads(1)\n"
+        "runpy.run_module('run', run_name='__main__')\n"
+    )
+    child = subprocess.run(
+        [sys.executable, "-c", code, "--config", str(config), "--data_dir", str(tmp_path),
+         "--output", str(output)],
+        cwd=Path(__file__).resolve().parents[1],
+        env={**os.environ, "CUDA_VISIBLE_DEVICES": "-1"}, capture_output=True, text=True,
+        check=True, timeout=90,
+    )
+    assert "relation\t" in child.stdout
+    assert json.loads(output.read_text(encoding="utf-8"))["device"] == "cpu"

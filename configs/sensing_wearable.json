@@ -1,0 +1,9 @@
+{
+  "mode": "sensing_wearable",
+  "seeds": [1, 2, 3],
+  "chunk_size": 256,
+  "relations": [
+    {"name": "utd_mhad", "pack": "packs/sensing/wearable_utd_mhad.npz"},
+    {"name": "czu_mhad", "pack": "packs/sensing/wearable_czu_mhad.npz"}
+  ]
+}
