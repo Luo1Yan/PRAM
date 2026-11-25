@@ -3,7 +3,7 @@
 <h1><a href="https://luo1yan.github.io/PRAM/">PRAM: Activating Latent Multimodal Knowledge through Partwise Reasoning</a></h1>
 
 [![Project Page](https://img.shields.io/badge/Project%20Page-PRAM-2565a3?style=flat-square)](https://luo1yan.github.io/PRAM/)
-[![Hugging Face Dataset](https://img.shields.io/badge/Hugging%20Face-PRAM--features-ffd21e?style=flat-square&logo=huggingface&logoColor=000)](https://huggingface.co/datasets/Rowance/PRAM-features)
+[![Hugging Face Dataset](https://img.shields.io/badge/Hugging%20Face-PRAM--features-ffd21e?style=flat-square&logo=huggingface&logoColor=ffd21e)](https://huggingface.co/datasets/Rowance/PRAM-features)
 [![License: MIT](https://img.shields.io/badge/License-MIT-3a46d6?style=flat-square)](LICENSE)
 ![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B-3776ab?style=flat-square)
 ![PyTorch 2.0+](https://img.shields.io/badge/PyTorch-2.0%2B-ee4c2c?style=flat-square)
