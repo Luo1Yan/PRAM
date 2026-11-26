@@ -17,7 +17,7 @@
 ## ✨ Overview
 
 <p align="center">
-  <img src="docs/assets/figures/fig1.png" alt="Partwise Reasoning Activates Latent Multimodal Knowledge" width="90%">
+  <img src="assets/fig1.png" alt="Partwise Reasoning Activates Latent Multimodal Knowledge" width="90%">
 </p>
 
 **Partwise Reasoning across Modalities (PRAM)** enables emergent cross-modal classification and retrieval between target modalities $A$ and $B$ that were never paired during training, while keeping all pretrained multimodal encoders completely frozen.
@@ -39,7 +39,7 @@
 ## 🏗️ Architecture
 
 <p align="center">
-  <img src="docs/assets/figures/fig2.png" alt="PRAM Framework Overview" width="96%">
+  <img src="assets/fig2.png" alt="PRAM Framework Overview" width="96%">
 </p>
 
 PRAM operates in three closed-form statistical modules:
@@ -140,7 +140,36 @@ data_cache/
         └── wearable_czu_mhad.npz
 ```
 
-Compact starter packs (`ib_utd_depth_imu`, `ib_vggsound_text_audio`, `ib_cart_thermal_imu`, `ib_mavd_audio_thermal`, `lb_msrvtt_video_audio`, `lb_mavd_thermal_audio`, `wearable_utd_mhad`, and `wearable_czu_mhad`) are immediately available in [`Rowance/PRAM-features`](https://huggingface.co/datasets/Rowance/PRAM-features) under each upstream dataset and encoder's respective non-commercial research terms (see `UPSTREAM_SOURCES.md` and `LICENSES/` in the dataset repository). Ego4D packs (`ib_ego4d_audio_imu`, `ib_ego4d_text_imu`) are not redistributed due to Ego4D's license terms; authorized Ego4D licensees and users building larger spatial packs can generate them locally via Option B.
+Compact starter packs (`ib_utd_depth_imu`, `ib_vggsound_text_audio`, `ib_cart_thermal_imu`, `ib_mavd_audio_thermal`, `lb_msrvtt_video_audio`, `lb_mavd_thermal_audio`, `wearable_utd_mhad`, and `wearable_czu_mhad`) are immediately available in [`Rowance/PRAM-features`](https://huggingface.co/datasets/Rowance/PRAM-features) under each upstream dataset and encoder's respective non-commercial research terms (see `UPSTREAM_SOURCES.md` and `LICENSES/` in the dataset repository). Ego4D packs (`ib_ego4d_audio_imu`, `ib_ego4d_text_imu`) are excluded from public redistribution under the Ego4D license; authorized Ego4D licensees can build them directly from their local Ego4D v2 download using the dedicated workflow below.
+
+### Reproducing Ego4D (Licensed Users)
+
+Because Ego4D is distributed strictly under its own license agreement, neither raw Ego4D data nor extracted Ego4D features are redistributed. Instead, [`configs/ego4d.json`](configs/ego4d.json) records only the official Ego4D v2 `video_uid`s, window timestamps, narration pass identifiers, and train/test split indices (`1,625` audio–IMU and `2,286` text–IMU windows), and [`scripts/extract_ego4d.py`](scripts/extract_ego4d.py) extracts both frozen ImageBind feature packs directly from a licensed local download:
+
+1. Obtain official Ego4D v2 access via [ego4d-data.org](https://ego4d-data.org/docs/start-here/) and download the `video_540ss` (or `full_scale`) videos, `imu` CSV files, and `annotations/narration.json` for the video UIDs listed in `configs/ego4d.json`.
+2. Verify that all required local inputs are in place before running ImageBind:
+
+```bash
+python scripts/extract_ego4d.py \
+    --ego4d_dir /path/to/ego4d/v2 \
+    --check-inputs
+```
+
+3. Extract both `ib_ego4d_audio_imu.npz` and `ib_ego4d_text_imu.npz` (shared video and IMU windows are decoded once and reused automatically) and evaluate them with `run.py`:
+
+```bash
+python scripts/extract_ego4d.py \
+    --ego4d_dir /path/to/ego4d/v2 \
+    --output_dir ./data_cache/packs/main \
+    --device cuda \
+    --compressed
+
+python run.py \
+    --config configs/main_imagebind.json \
+    --relations ib_ego4d_audio_imu ib_ego4d_text_imu \
+    --data_dir ./data_cache \
+    --output results/ego4d.json
+```
 
 ### Option B: Extract Frozen Features from Raw Datasets
 
@@ -270,6 +299,7 @@ PRAM/
 ├── configs/                       # JSON experiment & estimator configurations
 │   ├── default_pram.json          # Default fixed paper hyperparameters
 │   ├── quick_real.json            # Starter real-dataset bundle (6 public settings)
+│   ├── ego4d.json                 # License-clean Ego4D v2 UID & split protocol
 │   ├── main_imagebind.json        # Full ImageBind benchmark settings
 │   ├── main_languagebind.json     # Full LanguageBind benchmark settings
 │   ├── ablations.json             # Component ablation suite
@@ -295,13 +325,15 @@ PRAM/
 │   ├── sensing.py                 # Robot, vehicle & wearable sensing evaluators
 │   └── mechanisms.py              # Pair-budget, pivot-shuffle & multi-seed evaluators
 ├── scripts/                       # Feature extraction & Hugging Face upload helpers
+│   ├── extract_ego4d.py           # Turnkey Ego4D v2 extractor for licensed users
 │   ├── extract_imagebind.py
 │   ├── extract_languagebind.py
 │   ├── extract_sensing.py
 │   └── upload_to_hf.py
 ├── tests/                         # End-to-end verification test suite
-│   └── test_pram_e2e.py
-└── docs/                          # Bilingual GitHub Pages project website
+│   ├── test_pram_e2e.py
+│   └── test_ego4d_extractor.py
+└── assets/                        # Overview and framework figures
 ```
 
 ---
