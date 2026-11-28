@@ -372,7 +372,7 @@ python run.py \
 
 ## 🧪 Testing
 
-Run the full 25-test unit and end-to-end CLI verification suite on CPU:
+Run the full 34-test unit and end-to-end CLI verification suite on CPU:
 
 ```bash
 CUDA_VISIBLE_DEVICES=-1 pytest -v

@@ -191,6 +191,31 @@ def _shared_support(ya: Tensor, yb: Tensor, n_states: int) -> _Support:
     return _Support(ids, rows_a, rows_b, log_prior)
 
 
+def _pivot_shared_support(ya: Tensor, yb: Tensor, n_states: int) -> _Support:
+    """Filter substantial one-to-one overlap that dominates either edge's shared rows."""
+    ca = torch.bincount(ya, minlength=n_states)
+    cb = torch.bincount(yb, minlength=n_states)
+    shared = (ca > 0) & (cb > 0)
+    singletons = (ca == 1) & (cb == 1)
+    n_singletons = int(singletons.sum().item())
+    n_shared_a = int(ca[shared].sum().item())
+    n_shared_b = int(cb[shared].sum().item())
+    o_singletons = 0.5 * (n_singletons / len(ya) + n_singletons / len(yb))
+    if (
+        n_singletons > 0
+        and 2 * n_singletons > min(n_shared_a, n_shared_b)
+        and o_singletons >= 0.25
+    ):
+        shared = shared & ~singletons
+
+    ids = shared.nonzero(as_tuple=True)[0]
+    rows_a = shared[ya].nonzero(as_tuple=True)[0]
+    rows_b = shared[yb].nonzero(as_tuple=True)[0]
+    frequencies = (ca[ids] + cb[ids]).to(dtype=torch.float64)
+    log_prior = (frequencies / frequencies.sum()).log() if ids.numel() else frequencies
+    return _Support(ids, rows_a, rows_b, log_prior)
+
+
 def _compatibility(a: Tensor, b: Tensor, log_prior: Tensor) -> Tensor:
     """Evaluate log-sum-exp in tiles bounded in query, candidate, and state product."""
     b = b - log_prior
@@ -369,7 +394,7 @@ def fit_msf(
     is_class_prompt: bool,
 ) -> MSFState:
     states, ya, yb = partition
-    support = _shared_support(ya, yb, len(states))
+    support = _pivot_shared_support(ya, yb, len(states))
     w = _repeat_index(len(states), len(ya) + len(yb))
     o = 0.5 * (len(support.rows_a) / len(ya) + len(support.rows_b) / len(yb))
     multi = sum((ap_a.multiple_parts, ap_p.multiple_parts or pb_p.multiple_parts,

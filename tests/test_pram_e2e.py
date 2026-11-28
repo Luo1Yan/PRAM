@@ -664,3 +664,74 @@ def test_auto_device_with_cuda_hidden(tmp_path, pack):
     )
     assert "relation\t" in child.stdout
     assert json.loads(output.read_text(encoding="utf-8"))["device"] == "cpu"
+
+
+def test_shared_continuous_pivots_preserve_classification():
+    draw = randn(51)
+    centers = torch.eye(4, dtype=torch.float64)
+    signal = centers.repeat_interleave(4, dim=0)
+    nuisance = 4 * centers.repeat(4, 1)
+    # Opposite perturbations keep the pivot uncorrelated with the nuisance features.
+    jitter = 0.05 * draw(*signal.shape)
+    p = ModalityInput(torch.cat((signal + jitter, signal - jitter)))
+    a = ModalityInput(torch.cat((signal, nuisance), dim=1).repeat(2, 1))
+    b = ModalityInput(torch.cat((nuisance, signal), dim=1).repeat(2, 1))
+    model = PRAM().fit(a, p, p, b, is_class_prompt=False)
+    assert model.msf.m == len(p)
+    assert model.msf.o == 0.0
+    assert model.msf.pivot_route is None
+
+    prompts = ModalityInput(torch.cat((centers, 4 * centers), dim=1))
+    labels = torch.arange(4).repeat(6)
+    query_signal = centers[labels] + 0.02 * draw(len(labels), 4)
+    queries = ModalityInput(torch.cat((4 * centers[(labels + 1) % 4], query_signal), dim=1))
+    scores = model.score_classification(prompts, queries)
+    torch.testing.assert_close(scores, model.score_retrieval(prompts, queries), rtol=0, atol=0)
+    assert evaluate_classification(scores.T, labels)["accuracy"] > 0.9
+
+
+def test_half_overlapping_continuous_pivots():
+    frames = randn(52)(36, 4)
+    pa, pb = ModalityInput(frames[:24]), ModalityInput(frames[12:])
+    msf = PRAM().fit(pa, pa, pb, pb).msf
+    assert msf.m == len(frames)
+    assert msf.o == 0.0
+    assert msf.pivot_route is None
+
+
+def test_mixed_pivots_keep_repeated_states():
+    frames = randn(53)(30, 2)
+    states = torch.tensor([[0.0, 1.0], [1.0, 0.0]], dtype=torch.float64)
+    pa = ModalityInput(torch.cat((frames, states[:1], states[1:].repeat(11, 1))))
+    pb = ModalityInput(torch.cat((frames, states[:1].repeat(5, 1), states[1:].repeat(7, 1))))
+    msf = PRAM().fit(pa, pa, pb, pb).msf
+    assert len(msf.shared_states) == 2
+    assert msf.o == pytest.approx(12 / 42)
+    assert msf.pivot_route is not None
+    torch.testing.assert_close(msf.shared_states, states)
+    torch.testing.assert_close(msf.pivot_route.log_prior.exp(), states.new_tensor([0.25, 0.75]))
+
+
+def test_incidental_pivot_singletons_preserve_overlap():
+    draw = randn(54)
+    shared = draw(3, 4)
+    pa = ModalityInput(torch.cat((shared, draw(37, 4))))
+    pb = ModalityInput(torch.cat((shared, shared[2:].repeat(2, 1), draw(35, 4))))
+    msf = PRAM().fit(pa, pa, pb, pb).msf
+    assert len(msf.shared_states) == 3
+    assert msf.o == 0.5 * (3 / 40 + 5 / 40)
+    assert msf.pivot_route is not None
+
+
+def test_shared_continuous_pivots_preserve_class_prompt_support():
+    centers = torch.eye(16, dtype=torch.float64)
+    labels = torch.cat((torch.zeros(12, dtype=torch.long), torch.arange(1, 16)))
+    a = ModalityInput(centers[labels])
+    p = ModalityInput(a.global_feat + 0.02 * randn(55)(len(a), len(centers)))
+    b = ModalityInput(p.global_feat.roll(1, dims=1))
+    msf = PRAM().fit(a, p, p, b, is_class_prompt=True).msf
+    assert msf.o == 0.0
+    assert msf.pivot_route is None
+    assert msf.tau_A > 0
+    assert msf.class_route is not None
+    assert len(msf.class_route.a.classes) == len(centers)
